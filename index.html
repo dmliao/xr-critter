@@ -121,7 +121,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       </div>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/webxr-layers-polyfill@1.0.0/build/webxr-layers-polyfill.js"></script>
+
     <script type="module">
+      let layersPolyfill = new WebXRLayersPolyfill();
       import * as THREE from './js/third-party/three.js/build/three.module.js';
       import { DRACOLoader } from './js/third-party/three.js/examples/jsm/loaders/DRACOLoader.js';
       import { GLTFLoader } from './js/third-party/three.js/examples/jsm/loaders/GLTFLoader.js';
@@ -143,6 +146,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let xrLighting;
       let critter;
       let furMeshes = [];
+      let skyboxImage;
 
       let visualizeColliders = false;
       let isWebGL2 = false;
@@ -227,12 +231,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         const pmremGenerator = new THREE.PMREMGenerator(renderer);
         pmremGenerator.compileEquirectangularShader();
 
-        const rgbeLoader = new RGBELoader();
+        let rgbeLoader = new RGBELoader();
         rgbeLoader.setDataType(THREE.UnsignedByteType);
         rgbeLoader.load('./media/textures/skybox.hdr', (texture) => {
-          const envMap = pmremGenerator.fromEquirectangular(texture).texture;
-          scene.background = envMap;
-          //scene.environment = envMap;
+          skyboxImage = pmremGenerator.fromEquirectangular(texture).texture;
         });
 
         //
@@ -419,6 +421,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           hands[0].add(stats);
 
           // Start background music once the user enters VR.
+          /*
           if (!backgroundMusic) {
             backgroundMusic = new THREE.Audio(listener);
             audioLoader.load('media/music/telepathy-for-beginners.mp3', (buffer) => {
@@ -430,6 +433,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           } else {
             backgroundMusic.play();
           }
+          */
         });
 
         renderer.xr.addEventListener('sessionend', () => {
@@ -499,8 +503,81 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         return offsetIndex+i;
       }
 
-      function render() {
+      function render(t, frame) {
         const time = Date.now();
+        const xr = renderer.xr;
+        let session;
+        if (xr)
+          session = xr.getSession();
+
+        if (
+            session &&
+            session.renderState.layers &&
+            session.renderState.layers.length === 1 &&
+            skyboxImage) {
+              session.requestReferenceSpace("local").then((refSpace) => {
+                let gl = renderer.getContext();
+                const layerFactory = new XRWebGLBinding(session, gl);
+                const equirectLayer = layerFactory.createCubeLayer(
+                    {
+                        space: refSpace,
+                        isStatic: true,
+                        viewPixelWidth: skyboxImage.image.width/3,
+                        viewPixelHeight: skyboxImage.image.height/3
+                    }
+                );
+                session.updateRenderState({
+                    layers: [equirectLayer, session.renderState.layers[0]],
+                });
+            });
+        }
+
+        if (
+            session &&
+            session.renderState.layers &&
+            session.renderState.layers.length === 2 &&
+            session.renderState.layers[0].needsRedraw &&
+            skyboxImage) {
+              const texProps = renderer.properties.get(skyboxImage);
+              const layerFactory = new XRWebGLBinding(session, renderer.getContext());
+              let subimage = layerFactory.getSubImage(session.renderState.layers[0], frame);
+              let gl = renderer.getContext();
+              let xrFramebuffer = gl.createFramebuffer();
+              let xrReadFramebuffer = gl.createFramebuffer();
+              let imageTexture = texProps.__webglTexture;
+
+              const side = skyboxImage.image.height/3;
+
+              gl.bindTexture(gl.TEXTURE_2D, imageTexture);
+              gl.bindFramebuffer(gl.READ_FRAMEBUFFER, xrReadFramebuffer);
+              gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, imageTexture, 0);
+
+              gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, xrFramebuffer);
+
+              gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_NEGATIVE_X, subimage.colorTexture, 0);
+              gl.blitFramebuffer(0, 0, side, side, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+              gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_Y, subimage.colorTexture, 0);
+              gl.blitFramebuffer(side, 0, side*2, side, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+              gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_Z, subimage.colorTexture, 0);
+              gl.blitFramebuffer(side*2, 0, side*3, side, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+              gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X, subimage.colorTexture, 0);
+              gl.blitFramebuffer(0, side, side, side*2, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+              gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_NEGATIVE_Y, subimage.colorTexture, 0);
+              gl.blitFramebuffer(side, side, side*2, side*2, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+              gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_NEGATIVE_Z, subimage.colorTexture, 0);
+              gl.blitFramebuffer(side*2, side, side*3, side*2, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+
+              gl.invalidateFramebuffer(gl.DRAW_FRAMEBUFFER, [gl.COLOR_ATTACHMENT0]);
+              gl.invalidateFramebuffer(gl.READ_FRAMEBUFFER, [gl.COLOR_ATTACHMENT0]);
+/*
+              for(let x = 0; x < 6; x++) {
+                gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_NEGATIVE_X + x, subimage.colorTexture, 0);
+                gl.blitFramebuffer((x>>1) * side, (x%2) * side, ((x>>1)+1) * side, ((x%2)+1) * side, 0, side, side, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+              }
+*/
+              gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.xr.getFramebuffer());
+            }
+
 
         // Make the critter do a little happy bounce.
         if (critter) {
