@@ -62,7 +62,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         margin: 0;
         height: 4em;
         z-index: 3;
-        background-color:
       }
 
       .webxr-experience {
@@ -121,7 +120,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/webxr-layers-polyfill@1.0.0/build/webxr-layers-polyfill.js"></script>
+    <!--use local version of layers polyfill for debugging.-->
+    <script src="./webxr-layers-polyfill.js"></script>
 
     <script type="module">
       let layersPolyfill = new WebXRLayersPolyfill();
@@ -219,7 +219,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.outputEncoding = THREE.sRGBEncoding;
         renderer.physicallyCorrectLights = true;
-        renderer.setClearColor(new THREE.Color(0, 0, 0));
+        renderer.setClearColor(new THREE.Color(1, 1, 1), 0);
         renderer.xr.enabled = true;
         container.appendChild(renderer.domElement);
 
